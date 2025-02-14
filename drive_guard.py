@@ -22,17 +22,18 @@ class SecureFolderTool:
         ]
         return sg.Window('File/Folder Protection Tool', layout, finalize=True, size=(500, 250))
 
-    def derive_key(self, password):
-        kdf = hashlib.pbkdf2_hmac('sha256', password.encode(), b'static_salt', 100000)
+    def derive_key(self, password, salt):
+        kdf = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 600000)
         return base64.urlsafe_b64encode(kdf)
 
     def encrypt_file(self, file_path, password):
         with open(file_path, 'rb') as f:
             data = f.read()
-        encryption_key = self.derive_key(password)
+        salt = os.urandom(16)  # Generate unique salt for each file
+        encryption_key = self.derive_key(password, salt)
         fernet = Fernet(encryption_key)
         encrypted_data = fernet.encrypt(data)
-        metadata = Fernet(encryption_key).encrypt(password.encode())
+        metadata = salt  # Store the salt as metadata
         new_file_path = file_path + '.enc'
         with open(new_file_path, 'wb') as f:
             f.write(metadata + b'::' + encrypted_data)
@@ -47,11 +48,9 @@ class SecureFolderTool:
             metadata, encrypted_data = content.split(b'::', 1)
         except ValueError:
             raise ValueError("Invalid file format!")
-        decryption_key = self.derive_key(password)
+        salt = metadata[:16]  # Extract the salt from metadata
+        decryption_key = self.derive_key(password, salt)
         try:
-            decrypted_metadata = Fernet(decryption_key).decrypt(metadata)
-            if decrypted_metadata.decode() != password:
-                raise ValueError("Incorrect password!")
             fernet = Fernet(decryption_key)
             decrypted_data = fernet.decrypt(encrypted_data)
             original_file_path = file_path[:-4]
